@@ -1,6 +1,8 @@
 package cn.llonvne.ksp.dotenv.impl
 
 import cn.llonvne.Dotenv
+import cn.llonvne.ksp.dotenv.impl.DotenvFieldVariableNameProvider.Companion.DotenvFieldNameProviderQueue
+import cn.llonvne.ksp.dotenv.impl.DotnetFieldKeyNameProvider.Companion.DotnetFieldKeyNameProviderQueue
 import com.google.devtools.ksp.KspExperimental
 import com.google.devtools.ksp.getAnnotationsByType
 import com.google.devtools.ksp.getDeclaredProperties
@@ -8,10 +10,9 @@ import com.google.devtools.ksp.processing.SymbolProcessorEnvironment
 import com.google.devtools.ksp.symbol.KSClassDeclaration
 import com.google.devtools.ksp.symbol.KSPropertyDeclaration
 import com.google.devtools.ksp.symbol.KSType
-import com.google.devtools.ksp.symbol.KSTypeReference
 import com.squareup.kotlinpoet.ClassName
 import com.squareup.kotlinpoet.ksp.toClassName
-import com.squareup.kotlinpoet.ksp.toTypeParameterResolver
+import java.util.PriorityQueue
 
 class DotenvClassDescriptorResolver(
     private val environment: SymbolProcessorEnvironment
@@ -43,17 +44,31 @@ class DotenvClassDescriptorResolver(
         }
     }
 
+
     data class DotenvFieldDescriptor(
         val property: KSPropertyDeclaration,
-        val filed: Dotenv.Field
+        val filed: Dotenv.Field,
+        val nameProvider: DotenvFieldNameProviderQueue,
+        val keyProvider: DotnetFieldKeyNameProviderQueue
     ) {
 
         fun resolveFieldType(): KSType {
             return property.type.resolve()
         }
 
-        fun resolveKeyName(dotenvClassDescriptor: DotenvClassDescriptor): String {
-            return dotenvClassDescriptor.resolvePrefix() + when (filed.namePolicy) {
+        fun resolveKeyName(
+            prefix: String,
+            dotenvClassDescriptor: DotenvClassDescriptor,
+            parentFieldDescriptor: DotenvFieldDescriptor?
+        ): String {
+
+            val combinedPrefix = if (parentFieldDescriptor != null) {
+                prefix + parentFieldDescriptor.property.simpleName.asString() + "."
+            } else {
+                prefix + dotenvClassDescriptor.resolvePrefix()
+            }
+
+            return combinedPrefix + when (filed.namePolicy) {
                 Dotenv.FieldNamePolicy.UPPERCASE_WITH_UNDERSCORE -> {
                     property.simpleName.asString().uppercase()
                 }
@@ -79,11 +94,14 @@ class DotenvClassDescriptorResolver(
         )
     }
 
+
     @OptIn(KspExperimental::class)
     private fun resolveFieldDescriptor(ksPropertyDeclaration: KSPropertyDeclaration): DotenvFieldDescriptor {
         return DotenvFieldDescriptor(
             ksPropertyDeclaration,
-            ksPropertyDeclaration.getAnnotationsByType(Dotenv.Field::class).first()
+            ksPropertyDeclaration.getAnnotationsByType(Dotenv.Field::class).first(),
+            DotenvFieldVariableNameProvider.defaultProviderQueue(ksPropertyDeclaration),
+            DotnetFieldKeyNameProvider.defaultKeyNameProviderQueue()
         )
     }
 }

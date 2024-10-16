@@ -22,7 +22,11 @@ annotation class Dotenv(
         /**
          * 为键指定特殊的名称，使用该参数时请调整 [namePolicy] 为 [FieldNamePolicy.SPECIFIC]，否则该项设置失效.
          */
-        val specific: String = ""
+        val specific: String = "",
+        /**
+         * 该参数指示是否递归的执行 Dotnet 读取,被读取的类型必须被 Dotnet 注解标识，否则ga
+         */
+        val recursive: Boolean = false
     )
 
     enum class FieldNamePolicy {

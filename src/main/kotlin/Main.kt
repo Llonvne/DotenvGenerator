@@ -1,26 +1,39 @@
 import cn.llonvne.Dotenv
-import cn.llonvne.loadEnvProperty
-import io.github.cdimascio.dotenv.dotenv
+import cn.llonvne.loadIpAddress
 
-enum class IPAddress {
+enum class IPAddressType {
     IPV4, IPV6
 }
+
+@Dotenv(
+    prefix = "username",
+    prefixNameSpilt = "."
+)
+data class Username(
+    @Dotenv.Field(Dotenv.FieldNamePolicy.FIELD_NAME)
+    val firstname: String,
+    @Dotenv.Field(Dotenv.FieldNamePolicy.FIELD_NAME)
+    val secondName: String
+)
 
 
 @Dotenv(
     prefix = "test",
     prefixNameSpilt = "."
 )
-data class EnvProperty(
-
+data class IpAddress(
     @Dotenv.Field(Dotenv.FieldNamePolicy.FIELD_NAME)
-    val version: String,
+    val address: String,
     @Dotenv.Field(Dotenv.FieldNamePolicy.FIELD_NAME)
-    val ipAddress: IPAddress,
+    val ipAddress: IPAddressType,
+    @Dotenv.Field(recursive = true)
+    val username: Username,
+    @Dotenv.Field(recursive = true)
+    val user2: Username
 )
 
 
 fun main() {
-    val p = Dotenv.loadEnvProperty()
+    val p = Dotenv.loadIpAddress()
     println(p)
 }

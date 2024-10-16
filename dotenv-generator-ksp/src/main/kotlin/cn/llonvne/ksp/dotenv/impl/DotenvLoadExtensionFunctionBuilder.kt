@@ -1,11 +1,13 @@
 package cn.llonvne.ksp.dotenv.impl
 
 import cn.llonvne.Dotenv
+import cn.llonvne.ksp.dotenv.impl.DotenvClassDescriptorResolver.DotenvClassDescriptor
+import cn.llonvne.ksp.dotenv.impl.DotenvClassDescriptorResolver.DotenvFieldDescriptor
+import cn.llonvne.ksp.dotenv.type.EnumFieldLoader
+import cn.llonvne.ksp.dotenv.type.RecursiveFieldLoader
+import cn.llonvne.ksp.dotenv.type.StringFieldLoader
 import com.google.devtools.ksp.processing.SymbolProcessorEnvironment
-import com.google.devtools.ksp.symbol.ClassKind
-import com.google.devtools.ksp.symbol.KSClassDeclaration
 import com.squareup.kotlinpoet.*
-import com.squareup.kotlinpoet.ksp.toClassName
 
 class DotenvLoadExtensionFunctionBuilder(
     private val environment: SymbolProcessorEnvironment
@@ -13,7 +15,7 @@ class DotenvLoadExtensionFunctionBuilder(
 
     private val env = "env"
 
-    fun resolve(dotenvClassDescriptor: DotenvClassDescriptorResolver.DotenvClassDescriptor): FunSpec.Builder {
+    fun resolve(dotenvClassDescriptor: DotenvClassDescriptor): FunSpec.Builder {
         return FunSpec.builder(dotenvClassDescriptor.loaderFunctionName)
             .receiver(Dotenv.Companion::class)
             .addCode(buildDotenvInitialization())
@@ -41,68 +43,35 @@ class DotenvLoadExtensionFunctionBuilder(
             .build()
     }
 
-    private fun buildCode(dotenvClassDescriptor: DotenvClassDescriptorResolver.DotenvClassDescriptor): CodeBlock {
+    private fun buildCode(dotenvClassDescriptor: DotenvClassDescriptor): CodeBlock {
         return CodeBlock.builder()
             .addStatement("return %T(%L)", dotenvClassDescriptor.className, passToConstruction(dotenvClassDescriptor))
             .build()
     }
 
-    private fun passToConstruction(dotenvClassDescriptor: DotenvClassDescriptorResolver.DotenvClassDescriptor): String {
+    private fun passToConstruction(dotenvClassDescriptor: DotenvClassDescriptor): String {
         return buildString {
             dotenvClassDescriptor.properties.forEach {
-                append("${it.property.simpleName.asString()} = ${fieldVariableName(it)},")
+                append("${it.property.simpleName.asString()} = ${it.nameProvider.provide()},")
             }
         }
     }
 
-    private fun fieldVariableName(fieldDescriptor: DotenvClassDescriptorResolver.DotenvFieldDescriptor): String {
-        return "`${fieldDescriptor.property.qualifiedName?.asString()}`".replace(".", "$")
-    }
+    private val normalFieldLoader = listOf(StringFieldLoader(), EnumFieldLoader())
+    private val recursiveFieldLoader = RecursiveFieldLoader(::loadField)
+    private val fieldLoader = (normalFieldLoader + recursiveFieldLoader).sortedBy { it.order() }
 
     private fun loadField(
-        classDescriptorResolver: DotenvClassDescriptorResolver.DotenvClassDescriptor,
-        fieldDescriptor: DotenvClassDescriptorResolver.DotenvFieldDescriptor
+        classDescriptor: DotenvClassDescriptor,
+        fieldDescriptor: DotenvFieldDescriptor,
+        prefix: String = "",
+        parentFieldDescriptor: DotenvFieldDescriptor? = null
     ): CodeBlock {
-
-        val type = fieldDescriptor.resolveFieldType()
-        // STRING TYPE
-        if (type.declaration.qualifiedName?.asString() == "kotlin.String") {
-            return CodeBlock.builder()
-                .addStatement(
-                    "val %N = %N[%S]",
-                    fieldVariableName(fieldDescriptor),
-                    env,
-                    fieldDescriptor.resolveKeyName(classDescriptorResolver)
-                )
-                .build()
-        }
-
-        val declaration = type.declaration
-
-        // ENUM TYPE
-        if (declaration is KSClassDeclaration) {
-            if (declaration.classKind == ClassKind.ENUM_CLASS) {
-                return loadEnum(declaration, classDescriptorResolver, fieldDescriptor)
+        for (loader in fieldLoader) {
+            if (loader.support(classDescriptor, fieldDescriptor)) {
+                return loader.load(classDescriptor, fieldDescriptor, prefix, parentFieldDescriptor)
             }
         }
-
-        TODO("UNSUPPORTED TYPE")
-
-    }
-
-    private fun loadEnum(
-        enumType: KSClassDeclaration,
-        classDescriptorResolver: DotenvClassDescriptorResolver.DotenvClassDescriptor,
-        fieldDescriptor: DotenvClassDescriptorResolver.DotenvFieldDescriptor
-    ): CodeBlock {
-        return CodeBlock.builder()
-            .addStatement(
-                "val %N = %T.valueOf(%N[%S])",
-                fieldVariableName(fieldDescriptor),
-                enumType.toClassName(),
-                env,
-                fieldDescriptor.resolveKeyName(classDescriptorResolver)
-            )
-            .build()
+        TODO("UNSUPPORTED TYPE ")
     }
 }

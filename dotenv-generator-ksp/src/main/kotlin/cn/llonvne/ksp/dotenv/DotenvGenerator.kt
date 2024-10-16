@@ -3,6 +3,7 @@ package cn.llonvne.ksp.dotenv
 import cn.llonvne.ksp.dotenv.impl.DotenvAnnotatedClassFinder
 import cn.llonvne.ksp.dotenv.impl.DotenvClassDescriptorResolver
 import cn.llonvne.ksp.dotenv.impl.DotenvLoadExtensionFunctionBuilder
+import cn.llonvne.ksp.dotenv.registry.DotenvClassDescriptorRegistry
 import com.google.devtools.ksp.processing.Resolver
 import com.google.devtools.ksp.processing.SymbolProcessor
 import com.google.devtools.ksp.processing.SymbolProcessorEnvironment
@@ -20,6 +21,7 @@ class DotenvGenerator(private val environment: SymbolProcessorEnvironment) : Sym
 
     private val dotenvExtensionFunctionFileSpec = FileSpec.builder("cn.llonvne", "dotenv")
 
+
     override fun finish() {
         dotenvExtensionFunctionFileSpec.build().writeTo(environment.codeGenerator, true)
     }
@@ -29,6 +31,8 @@ class DotenvGenerator(private val environment: SymbolProcessorEnvironment) : Sym
         val classes = annotatedClassFinder.find(resolver)
 
         val dotenvClassDescriptors = classes.map { annotationGetter.resolveDotenvClassDescriptor(it) }
+
+        dotenvClassDescriptors.forEach { DotenvClassDescriptorRegistry.register(it) }
 
         dotenvClassDescriptors.map { loadExtensionFunctionBuilder.resolve(it) }.forEach {
             dotenvExtensionFunctionFileSpec.addFunction(it.build())

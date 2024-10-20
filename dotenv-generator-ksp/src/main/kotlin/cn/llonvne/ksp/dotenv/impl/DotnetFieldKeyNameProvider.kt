@@ -1,43 +1,80 @@
 package cn.llonvne.ksp.dotenv.impl
 
-import java.util.*
+import cn.llonvne.Dotenv
+import com.google.devtools.ksp.symbol.KSPropertyDeclaration
 
 interface DotnetFieldKeyNameProvider {
     fun provide(): String
 
-    fun order(): Int
-
     companion object {
-        private class DefaultFieldKeyNameProvider : DotnetFieldKeyNameProvider {
-            override fun provide(): String {
-                TODO("Not yet implemented")
-            }
 
-            override fun order(): Int {
-                TODO("Not yet implemented")
+        fun resolvePrefix(dotenv: Dotenv): String {
+            return if (dotenv.prefix == "") {
+                ""
+            } else {
+                dotenv.prefix + dotenv.prefixNameSpilt
             }
+        }
+
+        private class DefaultFieldKeyNameProvider(
+            private val filed: Dotenv.Field,
+            private val property: KSPropertyDeclaration
+        ) : DotnetFieldKeyNameProvider {
+            override fun provide(): String {
+                return buildString {
+                    append(
+                        when (filed.namePolicy) {
+                            Dotenv.FieldNamePolicy.UPPERCASE_WITH_UNDERSCORE -> {
+                                property.simpleName.getShortName().uppercase()
+                            }
+
+                            Dotenv.FieldNamePolicy.FIELD_NAME -> {
+                                property.simpleName.getShortName()
+                            }
+
+                            Dotenv.FieldNamePolicy.SPECIFIC -> {
+                                filed.specific
+                            }
+                        }
+                    )
+                }
+            }
+        }
+
+        class DotnetFieldPrefixKeyNameProvider(private val dotenv: Dotenv) : DotnetFieldKeyNameProvider {
+            override fun provide(): String = dotenv.prefix
         }
 
         class DotnetFieldKeyNameProviderQueue {
-            private val queue = PriorityQueue<DotnetFieldKeyNameProvider>(
-                compareByDescending { it.order() }
-            )
+            private val keyNames = mutableListOf<DotnetFieldKeyNameProvider>()
 
             fun addProvider(provider: DotnetFieldKeyNameProvider) {
-                queue.add(provider)
+                keyNames.add(provider)
             }
 
-            fun provide(): String {
-                return queue.first().provide()
+
+            fun provide(loadFieldContext: DotenvLoadExtensionFunctionBuilder.LoadFieldContext): String {
+                return loadFieldContext.firstContext().classDescriptor.resolvePrefix() + keyNames.reversed()
+                    .joinToString(".") { it.provide() }
             }
 
             fun removeProvider(provider: DotnetFieldKeyNameProvider) {
-                queue.remove(provider)
+                keyNames.remove(provider)
             }
         }
 
-        fun defaultKeyNameProviderQueue(): DotnetFieldKeyNameProviderQueue {
-            return DotnetFieldKeyNameProviderQueue().also { it.addProvider(DefaultFieldKeyNameProvider()) }
+        fun defaultKeyNameProviderQueue(
+            field: Dotenv.Field,
+            property: KSPropertyDeclaration
+        ): DotnetFieldKeyNameProviderQueue {
+            return DotnetFieldKeyNameProviderQueue().also {
+                it.addProvider(
+                    DefaultFieldKeyNameProvider(
+                        field,
+                        property
+                    )
+                )
+            }
         }
     }
 }

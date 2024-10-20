@@ -20,7 +20,7 @@ class DotenvLoadExtensionFunctionBuilder(
             .receiver(Dotenv.Companion::class)
             .addCode(buildDotenvInitialization())
             .also { funSpec ->
-                dotenvClassDescriptor.properties.map { loadField(dotenvClassDescriptor, it) }
+                dotenvClassDescriptor.properties.map { loadField(LoadFieldContext(dotenvClassDescriptor, it)) }
                     .forEach { funSpec.addCode(it) }
             }
             .addCode(buildCode(dotenvClassDescriptor))
@@ -61,15 +61,29 @@ class DotenvLoadExtensionFunctionBuilder(
     private val recursiveFieldLoader = RecursiveFieldLoader(::loadField)
     private val fieldLoader = (normalFieldLoader + recursiveFieldLoader).sortedBy { it.order() }
 
+    data class LoadFieldContext(
+        val classDescriptor: DotenvClassDescriptor,
+        val fieldDescriptor: DotenvFieldDescriptor,
+        val prefix: String = "",
+        val lastContext: LoadFieldContext? = null,
+    ) {
+        fun firstContext(): LoadFieldContext {
+            var first = this
+            while (first.lastContext != null){
+                first = first.lastContext!!
+            }
+            return first
+        }
+    }
+
     private fun loadField(
-        classDescriptor: DotenvClassDescriptor,
-        fieldDescriptor: DotenvFieldDescriptor,
-        prefix: String = "",
-        parentFieldDescriptor: DotenvFieldDescriptor? = null
+        context: LoadFieldContext
     ): CodeBlock {
-        for (loader in fieldLoader) {
-            if (loader.support(classDescriptor, fieldDescriptor)) {
-                return loader.load(classDescriptor, fieldDescriptor, prefix, parentFieldDescriptor)
+        with(context) {
+            for (loader in fieldLoader) {
+                if (loader.support(classDescriptor, fieldDescriptor)) {
+                    return loader.load(context)
+                }
             }
         }
         TODO("UNSUPPORTED TYPE ")

@@ -1,6 +1,7 @@
 package cn.llonvne.ksp.dotenv.type
 
 import cn.llonvne.ksp.dotenv.impl.DotenvClassDescriptorResolver
+import cn.llonvne.ksp.dotenv.impl.DotenvLoadExtensionFunctionBuilder
 import com.squareup.kotlinpoet.CodeBlock
 
 interface FieldLoader {
@@ -9,10 +10,7 @@ interface FieldLoader {
     }
 
     fun load(
-        classDescriptor: DotenvClassDescriptorResolver.DotenvClassDescriptor,
-        fieldDescriptor: DotenvClassDescriptorResolver.DotenvFieldDescriptor,
-        prefix: String,
-        parentFieldDescriptor: DotenvClassDescriptorResolver.DotenvFieldDescriptor? = null
+        loadFieldContext: DotenvLoadExtensionFunctionBuilder.LoadFieldContext
     ): CodeBlock
 
     fun support(

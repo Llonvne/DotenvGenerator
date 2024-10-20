@@ -12,7 +12,6 @@ import com.google.devtools.ksp.symbol.KSPropertyDeclaration
 import com.google.devtools.ksp.symbol.KSType
 import com.squareup.kotlinpoet.ClassName
 import com.squareup.kotlinpoet.ksp.toClassName
-import java.util.PriorityQueue
 
 class DotenvClassDescriptorResolver(
     private val environment: SymbolProcessorEnvironment
@@ -86,22 +85,27 @@ class DotenvClassDescriptorResolver(
 
     @OptIn(KspExperimental::class)
     fun resolveDotenvClassDescriptor(ksClassDeclaration: KSClassDeclaration): DotenvClassDescriptor {
-        val dotenvList = ksClassDeclaration.getAnnotationsByType(Dotenv::class).toList()
+        val dotenv = ksClassDeclaration.getAnnotationsByType(Dotenv::class).toList().first()
         return DotenvClassDescriptor(
             ksClassDeclaration,
-            dotenvList.first(),
+            dotenv,
             ksClassDeclaration.getDeclaredProperties().map { resolveFieldDescriptor(it) }.toList()
         )
     }
 
 
     @OptIn(KspExperimental::class)
-    private fun resolveFieldDescriptor(ksPropertyDeclaration: KSPropertyDeclaration): DotenvFieldDescriptor {
+    private fun resolveFieldDescriptor(
+        ksPropertyDeclaration: KSPropertyDeclaration
+    ): DotenvFieldDescriptor {
+
+        val field = ksPropertyDeclaration.getAnnotationsByType(Dotenv.Field::class).first()
+
         return DotenvFieldDescriptor(
             ksPropertyDeclaration,
-            ksPropertyDeclaration.getAnnotationsByType(Dotenv.Field::class).first(),
+            field,
             DotenvFieldVariableNameProvider.defaultProviderQueue(ksPropertyDeclaration),
-            DotnetFieldKeyNameProvider.defaultKeyNameProviderQueue()
+            DotnetFieldKeyNameProvider.defaultKeyNameProviderQueue(field, ksPropertyDeclaration)
         )
     }
 }

@@ -5,24 +5,31 @@ import cn.llonvne.ksp.dotenv.impl.DotenvClassDescriptorResolver
 import cn.llonvne.ksp.dotenv.impl.DotenvClassDescriptorResolver.DotenvClassDescriptor
 import cn.llonvne.ksp.dotenv.impl.DotenvClassDescriptorResolver.DotenvFieldDescriptor
 import cn.llonvne.ksp.dotenv.impl.DotenvFieldVariableNameProvider
+import cn.llonvne.ksp.dotenv.impl.DotenvLoadExtensionFunctionBuilder
+import cn.llonvne.ksp.dotenv.impl.DotenvLoadExtensionFunctionBuilder.LoadFieldContext
+import cn.llonvne.ksp.dotenv.impl.DotnetFieldKeyNameProvider
 import cn.llonvne.ksp.dotenv.registry.DotenvClassDescriptorRegistry
 import com.google.devtools.ksp.KspExperimental
 import com.google.devtools.ksp.isAnnotationPresent
+import com.google.devtools.ksp.symbol.KSPropertyDeclaration
 import com.squareup.kotlinpoet.CodeBlock
+import org.intellij.lang.annotations.Identifier
+import java.util.UUID
 
 class RecursiveFieldLoader(
-    private val loadField: (DotenvClassDescriptor, DotenvFieldDescriptor, String, DotenvFieldDescriptor) -> CodeBlock
+    private val loadField: (LoadFieldContext) -> CodeBlock
 ) : FieldLoader {
 
     class RecursiveFieldVariableNameProvider(
-        private val fieldDescriptor: DotenvFieldDescriptor,
-        private val parentFieldDescriptor: DotenvFieldDescriptor
+        private val lastFieldContext: LoadFieldContext,
+        private val identifier: UUID
     ) : DotenvFieldVariableNameProvider {
         override fun provide(): String {
             return buildString {
                 append("`")
-                append("${fieldDescriptor.property.qualifiedName?.asString()}")
-                append("_${parentFieldDescriptor.property.simpleName.asString()}")
+                append("${lastFieldContext.fieldDescriptor.property.qualifiedName?.asString()}")
+                append("_${lastFieldContext.lastContext?.fieldDescriptor?.property?.simpleName?.asString()}")
+                append("_${identifier.toString().substring(0..6)}")
                 append("`")
             }.replace(".", "$")
         }
@@ -32,65 +39,85 @@ class RecursiveFieldLoader(
         }
     }
 
-    private fun <R> DotenvFieldDescriptor.recursiveFieldVariableNameProviderScope(
-        parentFieldDescriptor: DotenvFieldDescriptor,
-        action: () -> R
+    private fun <R> recursiveFieldVariableNameProviderScope(
+        identifier: UUID,
+        lastFieldContext: LoadFieldContext, action: () -> R
     ): R {
-        val recursiveFieldVariableNameProvider = RecursiveFieldVariableNameProvider(this, parentFieldDescriptor)
-        this.nameProvider.addProvider(recursiveFieldVariableNameProvider)
+        val recursiveFieldVariableNameProvider = RecursiveFieldVariableNameProvider(lastFieldContext, identifier)
+        lastFieldContext.fieldDescriptor.nameProvider.addProvider(recursiveFieldVariableNameProvider)
         val ret = action()
-        this.nameProvider.removeProvider(recursiveFieldVariableNameProvider)
+        lastFieldContext.fieldDescriptor.nameProvider.removeProvider(recursiveFieldVariableNameProvider)
         return ret
     }
 
-    override fun load(
-        classDescriptor: DotenvClassDescriptor,
-        fieldDescriptor: DotenvFieldDescriptor,
-        prefix: String,
-        parentFieldDescriptor: DotenvFieldDescriptor?
-    ): CodeBlock {
+    class RecursiveFieldKeyNameProvider(
+        private val fieldDescriptor: DotenvFieldDescriptor
+    ) : DotnetFieldKeyNameProvider {
+        override fun provide(): String {
+            return fieldDescriptor.property.simpleName.getShortName()
+        }
+    }
 
-        val filedClassDescriptor =
-            DotenvClassDescriptorRegistry.get(
-                fieldDescriptor.property.type.resolve().declaration.qualifiedName?.asString()!!
-            )!!
+    override fun load(
+        loadFieldContext: LoadFieldContext
+    ): CodeBlock = with(loadFieldContext) {
+
+        val identifier = UUID.randomUUID()
+
+        val filedClassDescriptor = DotenvClassDescriptorRegistry.get(
+            fieldDescriptor.property.type.resolve().declaration.qualifiedName?.asString()!!
+        )!!
+
+        val contextMap: MutableMap<KSPropertyDeclaration, LoadFieldContext> = mutableMapOf()
 
         val codeBlocks = filedClassDescriptor.properties.map {
-            it.recursiveFieldVariableNameProviderScope(fieldDescriptor) {
-                loadField.invoke(filedClassDescriptor, it, prefix + classDescriptor.resolvePrefix(), fieldDescriptor)
+
+            val keyProvider = RecursiveFieldKeyNameProvider(fieldDescriptor)
+
+            it.keyProvider.addProvider(keyProvider)
+
+            val newContext = LoadFieldContext(
+                filedClassDescriptor, it, prefix + classDescriptor.resolvePrefix(), loadFieldContext
+            )
+
+            contextMap[it.property] = newContext
+
+            val ret = recursiveFieldVariableNameProviderScope(identifier, newContext) {
+                loadField.invoke(newContext)
             }
+
+            it.keyProvider.removeProvider(keyProvider)
+
+            ret
         }
 
-        return CodeBlock.builder()
-            .also { code ->
-                codeBlocks.forEach { code.add(it) }
-            }
-            .add(recursiveBuildCode(filedClassDescriptor, fieldDescriptor, prefix))
-            .build()
+        return CodeBlock.builder().also { code ->
+            codeBlocks.forEach { code.add(it) }
+        }.add(recursiveBuildCode(identifier, filedClassDescriptor, fieldDescriptor, contextMap)).build()
     }
 
     private fun recursiveBuildCode(
+        identifier: UUID,
         fieldClassDescriptor: DotenvClassDescriptor,
         fieldDescriptor: DotenvFieldDescriptor,
-        prefix: String
+        contextMap: Map<KSPropertyDeclaration, LoadFieldContext>
     ): CodeBlock {
-        return CodeBlock.builder()
-            .addStatement(
-                "val %N = %T(%L)",
-                fieldDescriptor.nameProvider.provide(),
-                fieldClassDescriptor.className,
-                passToConstruction(fieldClassDescriptor, fieldDescriptor)
-            )
-            .build()
+        return CodeBlock.builder().addStatement(
+            "val %N = %T(%L)",
+            fieldDescriptor.nameProvider.provide(),
+            fieldClassDescriptor.className,
+            passToConstruction(identifier, fieldClassDescriptor, contextMap)
+        ).build()
     }
 
     private fun passToConstruction(
+        identifier: UUID,
         classDescriptor: DotenvClassDescriptor,
-        fieldDescriptor: DotenvFieldDescriptor
+        contextMap: Map<KSPropertyDeclaration, LoadFieldContext>
     ): String {
         return buildString {
             classDescriptor.properties.forEach {
-                it.recursiveFieldVariableNameProviderScope(fieldDescriptor) {
+                recursiveFieldVariableNameProviderScope(identifier, contextMap[it.property]!!) {
                     append("${it.property.simpleName.asString()} = ${it.nameProvider.provide()},")
                 }
             }
@@ -99,8 +126,7 @@ class RecursiveFieldLoader(
 
     @OptIn(KspExperimental::class)
     override fun support(
-        classDescriptor: DotenvClassDescriptor,
-        fieldDescriptor: DotenvFieldDescriptor
+        classDescriptor: DotenvClassDescriptor, fieldDescriptor: DotenvFieldDescriptor
     ): Boolean {
         return fieldDescriptor.filed.recursive && fieldDescriptor.property.type.resolve().declaration.isAnnotationPresent(
             Dotenv::class

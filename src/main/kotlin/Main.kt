@@ -13,7 +13,17 @@ data class Username(
     @Dotenv.Field(Dotenv.FieldNamePolicy.FIELD_NAME)
     val firstname: String,
     @Dotenv.Field(Dotenv.FieldNamePolicy.FIELD_NAME)
-    val secondName: String
+    val secondName: String,
+    @Dotenv.Field(recursive = true)
+    val phoneNumber: PhoneNumber
+)
+
+@Dotenv
+data class PhoneNumber(
+    @Dotenv.Field(Dotenv.FieldNamePolicy.FIELD_NAME)
+    val isd: String,
+    @Dotenv.Field(Dotenv.FieldNamePolicy.FIELD_NAME)
+    val number: String
 )
 
 
